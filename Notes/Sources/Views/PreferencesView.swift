@@ -47,23 +47,6 @@ struct GeneralPreferencesView: View {
                     .font(.headline)
             }
             
-            Section {
-                HStack {
-                    Text("Note Storage Location:")
-                    Spacer()
-                    Text(viewModel.settings.noteStorageLocation)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Button("Change...") {
-                        viewModel.selectStorageLocation()
-                    }
-                }
-            } header: {
-                Text("Storage")
-                    .font(.headline)
-            }
-            
             Spacer()
             
             HStack {

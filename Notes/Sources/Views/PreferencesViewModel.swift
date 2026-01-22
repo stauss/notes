@@ -47,20 +47,6 @@ class PreferencesViewModel: ObservableObject {
         }
     }
     
-    func selectStorageLocation() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a location to store notes"
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            settings.noteStorageLocation = url.path
-            saveSettings()
-        }
-    }
-    
     func updateIconColor(_ color: Color) {
         settings.iconColor = color.toHex() ?? "#000000"
         saveSettings()

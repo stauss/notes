@@ -1,7 +1,12 @@
 import Foundation
 import CoreServices
 
-/// Stores notes in Finder Comments (kMDItemFinderComment) extended attribute
+/// Hybrid note storage: NoteDatabase (SQLite) as primary, xattr (Finder Comments) as write-through.
+/// 
+/// Storage strategy:
+/// - Save: Write to database first, then write-through to xattr for Finder visibility
+/// - Read: Try database first, fallback to xattr (for legacy data or moved files)
+/// - Delete: Remove from both database and xattr
 class NoteStorage {
     static let shared = NoteStorage()
     
@@ -13,56 +18,106 @@ class NoteStorage {
     
     /// Check if a file/folder has an associated note
     func hasNote(for url: URL) -> Bool {
+        // Try database first
+        if NoteDatabase.shared.hasNote(for: url) {
+            return true
+        }
+        
+        // Fallback to xattr
         guard let comment = readFinderComment(for: url) else { return false }
         return !comment.isEmpty
     }
     
     /// Get note for a file/folder
     func getNote(for url: URL) -> Note? {
+        // Try database first
+        if let note = NoteDatabase.shared.getNote(for: url) {
+            print("📚 [NoteStorage] Found note in database for: \(url.lastPathComponent)")
+            return note
+        }
+        
+        // Fallback to xattr (handles legacy notes and moved files)
+        print("📚 [NoteStorage] Checking xattr fallback for: \(url.lastPathComponent)")
         guard let comment = readFinderComment(for: url) else { return nil }
         return Note(fromComment: comment, filePath: url.path)
     }
     
-    /// Save a note to a file/folder's Finder Comment
-    /// - Returns: true if save succeeded, false otherwise
+    /// Save a note to a file/folder
+    /// Writes to database first, then to xattr for Finder visibility
+    /// - Returns: true if at least one storage method succeeded
     @discardableResult
     func saveNote(_ note: Note, to url: URL) -> Bool {
-        let success = writeFinderComment(note.encodedComment, to: url)
-        if success {
-            // Redacted log - only show filename
-            print("✅ Saved note to: \(url.lastPathComponent)")
-        } else {
-            print("❌ Failed to save note to: \(url.lastPathComponent)")
+        var dbSuccess = false
+        var xattrSuccess = false
+        
+        // 1. Save to database (primary storage)
+        dbSuccess = NoteDatabase.shared.saveNote(note, for: url)
+        if !dbSuccess {
+            print("⚠️ [NoteStorage] Database save failed for: \(url.lastPathComponent)")
         }
-        return success
+        
+        // 2. Write-through to xattr (for Finder visibility)
+        xattrSuccess = writeFinderComment(note.encodedComment, to: url)
+        if xattrSuccess {
+            print("✅ [NoteStorage] Saved note to: \(url.lastPathComponent)")
+        } else {
+            print("⚠️ [NoteStorage] xattr save failed for: \(url.lastPathComponent)")
+        }
+        
+        // Success if at least one method worked
+        return dbSuccess || xattrSuccess
     }
     
     /// Remove note from a file/folder
-    /// - Returns: true if removal succeeded, false otherwise
+    /// Removes from both database and xattr
+    /// - Returns: true if removal succeeded from both (or note didn't exist)
     @discardableResult
     func removeNote(for url: URL) -> Bool {
-        let success = clearFinderComment(for: url)
-        if success {
-            print("✅ Removed note from: \(url.lastPathComponent)")
+        var dbSuccess = true
+        var xattrSuccess = true
+        
+        // 1. Remove from database
+        dbSuccess = NoteDatabase.shared.deleteNote(for: url)
+        
+        // 2. Remove from xattr
+        xattrSuccess = clearFinderComment(for: url)
+        
+        if dbSuccess && xattrSuccess {
+            print("✅ [NoteStorage] Removed note from: \(url.lastPathComponent)")
         } else {
-            print("❌ Failed to remove note from: \(url.lastPathComponent)")
+            print("⚠️ [NoteStorage] Partial removal for: \(url.lastPathComponent) (db: \(dbSuccess), xattr: \(xattrSuccess))")
         }
-        return success
+        
+        return dbSuccess && xattrSuccess
     }
     
-    // MARK: - Finder Comment I/O
+    // MARK: - Finder Comment I/O (xattr)
     
     /// Read the Finder Comment from a file's extended attributes
     private func readFinderComment(for url: URL) -> String? {
+        print("🔍 [NoteStorage] Reading comment for: \(url.lastPathComponent)")
+        print("   Full path: \(url.path)")
+        
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        print("   File exists: \(exists)")
+        
         // Try MDItem first (faster for Spotlight-indexed files)
-        if let mdItem = MDItemCreateWithURL(nil, url as CFURL),
-           let comment = MDItemCopyAttribute(mdItem, kMDItemFinderComment) as? String,
-           !comment.isEmpty {
-            return comment
+        if let mdItem = MDItemCreateWithURL(nil, url as CFURL) {
+            print("   MDItem created: true")
+            if let comment = MDItemCopyAttribute(mdItem, kMDItemFinderComment) as? String,
+               !comment.isEmpty {
+                print("   MDItem comment: found")
+                return comment
+            } else {
+                print("   MDItem comment: (nil)")
+            }
+        } else {
+            print("   MDItem created: false")
         }
         
         // Fallback: Always try xattr directly
         // This handles recently moved files, unindexed locations, etc.
+        print("   📂 MDItem failed or empty, trying xattr fallback...")
         return readXattr(for: url)
     }
     
@@ -70,23 +125,42 @@ class NoteStorage {
     private func readXattr(for url: URL) -> String? {
         let path = url.path
         
+        print("   🔧 [xattr] Reading directly for: \(url.lastPathComponent)")
+        
         // Get the size of the attribute
         let size = getxattr(path, xattrName, nil, 0, 0, 0)
-        guard size > 0 else { return nil }
+        print("   🔧 [xattr] Size query result: \(size)")
+        
+        guard size > 0 else {
+            if size == -1 {
+                let err = errno
+                print("   🔧 [xattr] getxattr size failed: errno=\(err) (\(String(cString: strerror(err))))")
+                if err == ENOATTR {
+                    print("   🔧 [xattr] No such attribute exists on file")
+                }
+            }
+            print("   ❌ xattr fallback also failed - no note found")
+            return nil
+        }
         
         // Read the attribute data
         var data = Data(count: size)
         let result = data.withUnsafeMutableBytes { bytes in
             getxattr(path, xattrName, bytes.baseAddress, size, 0, 0)
         }
-        guard result > 0 else { return nil }
+        guard result > 0 else {
+            print("   ❌ xattr read failed")
+            return nil
+        }
         
         // Decode from plist format
         guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
               let comment = plist as? String else {
+            print("   ❌ xattr plist decode failed")
             return nil
         }
         
+        print("   ✅ xattr read succeeded")
         return comment
     }
     

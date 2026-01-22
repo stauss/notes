@@ -9,6 +9,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentEditorWindow: NoteEditorWindowController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize database (creates directory and schema if needed)
+        _ = NoteDatabase.shared
+        
         // Initialize menu bar manager
         menuBarManager = MenuBarManager()
         

@@ -5,14 +5,12 @@ struct AppSettings: Codable {
     var iconColor: String // Hex color
     var badgeColor: String // Hex color
     var launchAtLogin: Bool
-    var noteStorageLocation: String
     
     static let defaults = AppSettings(
         globalShortcut: "⌃⌥N",
         iconColor: "#000000",
         badgeColor: "#007AFF",
-        launchAtLogin: false,
-        noteStorageLocation: NSHomeDirectory() + "/Library/Application Support/Notes"
+        launchAtLogin: false
     )
     
     // UserDefaults keys
@@ -21,7 +19,6 @@ struct AppSettings: Codable {
         static let iconColor = "iconColor"
         static let badgeColor = "badgeColor"
         static let launchAtLogin = "launchAtLogin"
-        static let noteStorageLocation = "noteStorageLocation"
     }
     
     // Save to UserDefaults
@@ -31,7 +28,6 @@ struct AppSettings: Codable {
         defaults.set(iconColor, forKey: Keys.iconColor)
         defaults.set(badgeColor, forKey: Keys.badgeColor)
         defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
-        defaults.set(noteStorageLocation, forKey: Keys.noteStorageLocation)
     }
     
     // Load from UserDefaults
@@ -41,8 +37,7 @@ struct AppSettings: Codable {
             globalShortcut: defaults.string(forKey: Keys.globalShortcut) ?? AppSettings.defaults.globalShortcut,
             iconColor: defaults.string(forKey: Keys.iconColor) ?? AppSettings.defaults.iconColor,
             badgeColor: defaults.string(forKey: Keys.badgeColor) ?? AppSettings.defaults.badgeColor,
-            launchAtLogin: defaults.bool(forKey: Keys.launchAtLogin),
-            noteStorageLocation: defaults.string(forKey: Keys.noteStorageLocation) ?? AppSettings.defaults.noteStorageLocation
+            launchAtLogin: defaults.bool(forKey: Keys.launchAtLogin)
         )
     }
     
