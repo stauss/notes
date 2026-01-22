@@ -1,37 +1,211 @@
 import SwiftUI
 import AppKit
 
-class NoteEditorWindowController: NSWindowController {
-    private var filePath: String
-    private var existingNote: Note?
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let noteEditorWillDismiss = Notification.Name("noteEditorWillDismiss")
+    static let openNoteEditor = Notification.Name("openNoteEditor")
+}
+
+// MARK: - Custom Panel for Keyboard Focus
+
+/// A borderless NSPanel that can become key window (required for text input)
+class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool {
+        return true
+    }
     
-    init(filePath: String, existingNote: Note? = nil) {
-        self.filePath = filePath
+    override var canBecomeMain: Bool {
+        return true
+    }
+}
+
+// MARK: - Window Controller
+
+class NoteEditorWindowController: NSWindowController, NSWindowDelegate {
+    private(set) var targetURL: URL?
+    private var existingNote: Note?
+    private var viewModel: NoteEditorViewModel?
+    private var hostingView: NSHostingView<NoteEditorView>?
+    
+    init(targetURL: URL?, existingNote: Note? = nil) {
+        self.targetURL = targetURL
         self.existingNote = existingNote
         
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+        // Create borderless panel that CAN become key (for text input)
+        // Using KeyablePanel subclass to enable keyboard focus on borderless window
+        let panel = KeyablePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.center()
-        window.title = existingNote == nil ? "Add Note" : "Edit Note"
-        window.contentView = NSHostingView(rootView: NoteEditorView(filePath: filePath, existingNote: existingNote))
-        window.minSize = NSSize(width: 400, height: 300)
         
-        // Make window float above other windows
-        window.level = .floating
+        // Panel configuration for Raycast-like behavior
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isMovableByWindowBackground = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = false  // Allow becoming key for text input
         
-        super.init(window: window)
+        // Force dark appearance for consistent Raycast-like look
+        panel.appearance = NSAppearance(named: .darkAqua)
+        
+        // Create visual effect view for vibrancy/translucency (dark Raycast-like style)
+        let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 560, height: 420))
+        visualEffect.autoresizingMask = [.width, .height]
+        visualEffect.blendingMode = .behindWindow
+        visualEffect.material = .hudWindow
+        visualEffect.state = .active
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = 12
+        visualEffect.layer?.masksToBounds = true
+        visualEffect.appearance = NSAppearance(named: .darkAqua)
+        
+        panel.contentView = visualEffect
+        
+        super.init(window: panel)
+        panel.delegate = self
+        
+        // Create view model
+        let vm = NoteEditorViewModel(targetURL: targetURL, existingNote: existingNote)
+        self.viewModel = vm
+        
+        // Create SwiftUI view with callbacks
+        let editorView = NoteEditorView(
+            viewModel: vm,
+            onDismiss: { [weak self] in
+                self?.handleDismiss()
+            },
+            onSave: { [weak self] note in
+                self?.handleSave(note)
+            },
+            onDelete: { [weak self] in
+                self?.handleDelete()
+            }
+        )
+        
+        let hosting = NSHostingView(rootView: editorView)
+        hosting.frame = visualEffect.bounds
+        hosting.autoresizingMask = [.width, .height]
+        visualEffect.addSubview(hosting)
+        
+        self.hostingView = hosting
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
+    // MARK: - Public Methods
+    
     func show() {
+        window?.center()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        
+        // Ensure the window becomes first responder for text input
+        window?.makeFirstResponder(hostingView)
+    }
+    
+    func dismiss() {
+        // Prevent multiple dismiss calls
+        guard window?.isVisible == true else { return }
+        window?.close()
+    }
+    
+    // MARK: - NSWindowDelegate
+    
+    func windowDidResignKey(_ notification: Notification) {
+        // Window lost focus - handle auto-save logic and close
+        handleDismiss()
+    }
+    
+    func windowWillClose(_ notification: Notification) {
+        // Clean up
+        NotificationCenter.default.post(name: .noteEditorWillDismiss, object: self)
+    }
+    
+    // MARK: - Dismiss Logic
+    
+    private func handleDismiss() {
+        guard let vm = viewModel, let url = targetURL else {
+            dismiss()
+            return
+        }
+        
+        // Check if note has any content
+        if vm.isEmpty {
+            // No content - delete any existing note and close
+            if vm.hasExistingNote {
+                NoteStorage.shared.removeNote(for: url)
+                print("🗑️ Deleted empty note for: \(url.lastPathComponent)")
+            }
+        } else if vm.isDirty {
+            // Has content and is dirty - auto-save
+            if let note = vm.buildNote() {
+                NoteStorage.shared.saveNote(note, to: url)
+                print("💾 Auto-saved note for: \(url.lastPathComponent)")
+            }
+        }
+        
+        dismiss()
+    }
+    
+    // MARK: - Action Handlers
+    
+    private func handleSave(_ note: Note) {
+        guard let url = targetURL else {
+            print("❌ Cannot save: no target URL")
+            showError("No file selected", message: "Please select a file to attach the note to.")
+            return
+        }
+        
+        // Don't save empty notes
+        if viewModel?.isEmpty == true {
+            print("ℹ️ Not saving empty note")
+            return
+        }
+        
+        let success = NoteStorage.shared.saveNote(note, to: url)
+        if success {
+            viewModel?.markAsSaved()
+        } else {
+            showError("Save Failed", message: "Could not save the note. The file may be read-only or inaccessible.")
+        }
+    }
+    
+    private func handleDelete() {
+        guard let url = targetURL else {
+            dismiss()
+            return
+        }
+        
+        // Delete any existing note
+        if viewModel?.hasExistingNote == true {
+            NoteStorage.shared.removeNote(for: url)
+            print("🗑️ Deleted note for: \(url.lastPathComponent)")
+        }
+        
+        dismiss()
+    }
+    
+    private func showError(_ title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        
+        if let window = self.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 }

@@ -26,5 +26,7 @@
 	<string>Copyright © 2026. All rights reserved.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Notes needs to communicate with Finder to detect which file you have selected.</string>
 </dict>
 </plist>

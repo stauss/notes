@@ -6,6 +6,9 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     private var menu: NSMenu?
     weak var preferencesWindowController: PreferencesWindowController?
     
+    // Cache the Finder selection when menu opens (before focus changes)
+    private var cachedSelection: URL?
+    
     override init() {
         super.init()
         setupMenuBar()
@@ -33,21 +36,40 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         menu = NSMenu()
         menu?.delegate = self
         
-        // Note: Menu items will be built dynamically in menuNeedsUpdate
-        
         // Attach menu to status item
         statusItem?.menu = menu
     }
     
-    // Build menu items dynamically based on Finder selection
+    // MARK: - NSMenuDelegate
+    
+    func menuWillOpen(_ menu: NSMenu) {
+        // Use cached selection which survives brief focus loss
+        // The cache is refreshed when user clicks in Finder or Finder becomes active
+        cachedSelection = FinderSelectionMonitor.shared.getCachedOrCurrentSelection()
+    }
+    
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        buildMenuItems()
+    }
+    
+    func menuDidClose(_ menu: NSMenu) {
+        // Clear cached selection after menu closes
+        cachedSelection = nil
+    }
+    
+    // MARK: - Menu Building
+    
     private func buildMenuItems() {
         menu?.removeAllItems()
         
-        // Check if there's a Finder selection
-        let selectedItem = FinderSelectionMonitor.shared.getSelectedItem()
-        
-        if let url = selectedItem {
-            let hasNote = NoteStorage.shared.hasNote(for: url.path)
+        // Use cached selection (captured in menuWillOpen)
+        if let url = cachedSelection {
+            // Show the filename as a header (disabled item)
+            let fileItem = NSMenuItem(title: url.lastPathComponent, action: nil, keyEquivalent: "")
+            fileItem.isEnabled = false
+            menu?.addItem(fileItem)
+            
+            let hasNote = NoteStorage.shared.hasNote(for: url)
             
             if hasNote {
                 // Show Edit and Remove options
@@ -62,11 +84,11 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         }
         
         // Standard menu items
-        addMenuItem(title: "Preferences", action: #selector(openPreferences), keyEquivalent: ",")
-        addMenuItem(title: "Send Feedback", action: #selector(sendFeedback), keyEquivalent: "f")
+        addMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        addMenuItem(title: "Send Feedback", action: #selector(sendFeedback), keyEquivalent: "")
         menu?.addItem(NSMenuItem.separator())
         addMenuItem(title: "About Notes", action: #selector(showAbout), keyEquivalent: "")
-        addMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
+        addMenuItem(title: "Quit Notes", action: #selector(quitApp), keyEquivalent: "q")
     }
     
     private func addMenuItem(title: String, action: Selector, keyEquivalent: String) {
@@ -82,21 +104,17 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     }
     
     @objc private func sendFeedback() {
-        print("Opening Send Feedback...")
-        // TODO: Open feedback form or email
         if let url = URL(string: "mailto:feedback@example.com?subject=Notes%20Feedback") {
             NSWorkspace.shared.open(url)
         }
     }
     
     @objc private func showAbout() {
-        // Create custom about panel with app icon
         let alert = NSAlert()
         alert.messageText = "Notes"
         alert.informativeText = "Version 1.0\n\nA minimal macOS utility for attaching notes to files and folders.\n\n© 2026 All rights reserved."
         alert.alertStyle = .informational
         
-        // Try to set app icon
         if let appIcon = NSImage(named: "AppIcon") {
             alert.icon = appIcon
         } else if let appIcon = NSApp.applicationIconImage {
@@ -111,7 +129,6 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         NSApplication.shared.terminate(nil)
     }
     
-    
     // MARK: - Icon Customization
     
     func updateIconColor(_ color: NSColor) {
@@ -120,41 +137,38 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         }
     }
     
-    // MARK: - NSMenuDelegate
-    
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        buildMenuItems()
-    }
-    
     // MARK: - Note Actions
     
     @objc private func addNote() {
-        guard let url = FinderSelectionMonitor.shared.getSelectedItem() else {
+        guard let url = cachedSelection else {
             print("No file selected")
             return
         }
         
-        let editorWindow = NoteEditorWindowController(filePath: url.path, existingNote: nil)
-        editorWindow.show()
+        // Post notification to open editor (AppDelegate handles window creation)
+        NotificationCenter.default.post(
+            name: .openNoteEditor,
+            object: nil,
+            userInfo: ["url": url]
+        )
     }
     
     @objc private func editNote() {
-        guard let url = FinderSelectionMonitor.shared.getSelectedItem() else {
+        guard let url = cachedSelection else {
             print("No file selected")
             return
         }
         
-        guard let note = NoteStorage.shared.getNote(for: url.path) else {
-            print("No note found for: \(url.path)")
-            return
-        }
-        
-        let editorWindow = NoteEditorWindowController(filePath: url.path, existingNote: note)
-        editorWindow.show()
+        // Post notification to open editor
+        NotificationCenter.default.post(
+            name: .openNoteEditor,
+            object: nil,
+            userInfo: ["url": url]
+        )
     }
     
     @objc private func removeNote() {
-        guard let url = FinderSelectionMonitor.shared.getSelectedItem() else {
+        guard let url = cachedSelection else {
             print("No file selected")
             return
         }
@@ -168,8 +182,8 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         alert.addButton(withTitle: "Cancel")
         
         if alert.runModal() == .alertFirstButtonReturn {
-            NoteStorage.shared.removeNote(for: url.path)
-            print("Removed note for: \(url.path)")
+            NoteStorage.shared.removeNote(for: url)
+            print("✅ Removed note for: \(url.lastPathComponent)")
         }
     }
 }
