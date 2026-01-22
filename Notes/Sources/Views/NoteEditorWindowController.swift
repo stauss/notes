@@ -83,6 +83,13 @@ class NoteEditorWindowController: NSWindowController, NSWindowDelegate {
         let vm = NoteEditorViewModel(targetURL: targetURL, existingNote: existingNote)
         self.viewModel = vm
         
+        // Wire up auto-save callback
+        vm.onAutoSave = { [weak self] note in
+            guard let url = self?.targetURL else { return }
+            NoteStorage.shared.saveNote(note, to: url)
+            print("💾 Auto-saved (debounced) for: \(url.lastPathComponent)")
+        }
+        
         // Create SwiftUI view with callbacks
         let editorView = NoteEditorView(
             viewModel: vm,
@@ -147,18 +154,18 @@ class NoteEditorWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         
-        // Check if note has any content
+        // COMMIT BOUNDARY: Check if note is empty
         if vm.isEmpty {
-            // No content - delete any existing note and close
-            if vm.hasExistingNote {
+            // Delete note if it exists (empty on close = remove)
+            if vm.hasExistingNote || NoteStorage.shared.hasNote(for: url) {
                 NoteStorage.shared.removeNote(for: url)
-                print("🗑️ Deleted empty note for: \(url.lastPathComponent)")
+                print("🗑️ Deleted empty note on dismiss: \(url.lastPathComponent)")
             }
         } else if vm.isDirty {
-            // Has content and is dirty - auto-save
+            // Final save on close (in case debounce hasn't fired yet)
             if let note = vm.buildNote() {
                 NoteStorage.shared.saveNote(note, to: url)
-                print("💾 Auto-saved note for: \(url.lastPathComponent)")
+                print("💾 Final save on dismiss: \(url.lastPathComponent)")
             }
         }
         

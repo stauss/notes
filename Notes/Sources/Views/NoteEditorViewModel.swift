@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 class NoteEditorViewModel: ObservableObject {
     @Published var targetURL: URL?
@@ -9,6 +10,10 @@ class NoteEditorViewModel: ObservableObject {
     private var originalTitle: String
     private var originalBody: String
     private var existingNote: Note?
+    private var cancellables = Set<AnyCancellable>()
+    
+    /// Callback for auto-save (set by window controller)
+    var onAutoSave: ((Note) -> Void)?
     
     // MARK: - Computed Properties
     
@@ -60,6 +65,9 @@ class NoteEditorViewModel: ObservableObject {
         self.body = initialBody
         self.originalTitle = initialTitle
         self.originalBody = initialBody
+        
+        // Setup debounced auto-save (300-500ms after last keystroke)
+        setupAutoSave()
     }
     
     // MARK: - Public Methods
@@ -109,5 +117,26 @@ class NoteEditorViewModel: ObservableObject {
             self.originalTitle = self.title
             self.originalBody = self.body
         }
+    }
+    
+    // MARK: - Auto-Save
+    
+    /// Setup debounced auto-save pipeline
+    private func setupAutoSave() {
+        // Combine title and body changes, debounce, then save
+        Publishers.CombineLatest($title, $body)
+            .dropFirst()  // Skip initial values
+            .debounce(for: .milliseconds(400), scheduler: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.triggerAutoSave()
+            }
+            .store(in: &cancellables)
+    }
+    
+    /// Trigger auto-save if note is dirty and not empty
+    private func triggerAutoSave() {
+        guard let note = buildNote(), !isEmpty, isDirty else { return }
+        onAutoSave?(note)
+        markAsSaved()
     }
 }

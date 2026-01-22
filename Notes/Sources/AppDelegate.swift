@@ -47,43 +47,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleGlobalShortcut() {
         print("⌨️ Global shortcut pressed!")
         
-        // Close any existing editor first
-        closeCurrentEditor()
-        
-        // Log what app is currently frontmost
-        if let frontApp = NSWorkspace.shared.frontmostApplication {
-            print("   Frontmost app: \(frontApp.localizedName ?? "unknown") (\(frontApp.bundleIdentifier ?? "?"))")
-        }
-        
-        // Get current Finder selection
-        print("   Requesting Finder selection...")
-        let selectedURL = FinderSelectionMonitor.shared.getSelectedItem()
-        
-        // Only show panel if file is selected
-        guard let url = selectedURL else {
-            print("📝 No file selected in Finder - panel not shown")
-            print("   (Check logs above for AppleScript details)")
+        // TRUE TOGGLE: If panel is visible, close it and return
+        if let editor = currentEditorWindow,
+           let window = editor.window,
+           window.isVisible {
+            print("   Panel visible - closing (toggle off)")
+            editor.dismiss()  // This triggers handleDismiss() for save/delete
+            currentEditorWindow = nil
             return
         }
         
-        print("   Got selection: \(url.path)")
+        // Panel not visible - open it
+        let selectedURL = FinderSelectionMonitor.shared.getSelectedItem()
         
-        // Load existing note
+        guard let url = selectedURL else {
+            print("📝 No file selected in Finder - panel not shown")
+            return
+        }
+        
+        print("   Opening panel for: \(url.lastPathComponent)")
+        
         let existingNote = NoteStorage.shared.getNote(for: url)
         
-        // Create and show editor (retained to prevent deallocation)
         currentEditorWindow = NoteEditorWindowController(
             targetURL: url,
             existingNote: existingNote
         )
         currentEditorWindow?.show()
-        
-        // Redacted logging - only show filename
-        if existingNote != nil {
-            print("📝 Editing note for: \(url.lastPathComponent)")
-        } else {
-            print("📝 Creating note for: \(url.lastPathComponent)")
-        }
     }
     
     // MARK: - Notification Observers

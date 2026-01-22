@@ -105,8 +105,9 @@ final class NoteDatabase {
         let createTableSQL = """
             CREATE TABLE IF NOT EXISTS notes (
                 id TEXT PRIMARY KEY,
-                file_path TEXT NOT NULL UNIQUE,
+                file_path TEXT NOT NULL,
                 file_bookmark BLOB,
+                bookmark_hash TEXT,
                 title TEXT NOT NULL DEFAULT '',
                 body TEXT NOT NULL DEFAULT '',
                 created_at REAL NOT NULL,
@@ -116,6 +117,7 @@ final class NoteDatabase {
         
         let createIndexSQL = """
             CREATE INDEX IF NOT EXISTS idx_file_path ON notes(file_path);
+            CREATE INDEX IF NOT EXISTS idx_bookmark_hash ON notes(bookmark_hash);
             """
         
         var errorMessage: UnsafeMutablePointer<CChar>?
@@ -128,13 +130,66 @@ final class NoteDatabase {
             throw NoteDatabaseError.schemaCreationFailed(result, error)
         }
         
-        // Create index
+        // Create indexes
         result = sqlite3_exec(db, createIndexSQL, nil, nil, &errorMessage)
         if result != SQLITE_OK {
             let error = errorMessage.map { String(cString: $0) } ?? "Unknown error"
             sqlite3_free(errorMessage)
             throw NoteDatabaseError.schemaCreationFailed(result, error)
         }
+        
+        // Migration: Add bookmark_hash column if it doesn't exist (idempotent)
+        try migrateSchema()
+    }
+    
+    /// Migrate schema to add bookmark_hash column (idempotent)
+    private func migrateSchema() throws {
+        // Check if bookmark_hash column exists
+        let checkSQL = "PRAGMA table_info(notes);"
+        var statement: OpaquePointer?
+        var hasBookmarkHash = false
+        
+        if sqlite3_prepare_v2(db, checkSQL, -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let nameCString = sqlite3_column_text(statement, 1) {
+                    let name = String(cString: nameCString)
+                    if name == "bookmark_hash" {
+                        hasBookmarkHash = true
+                        break
+                    }
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        
+        // Add column if it doesn't exist
+        if !hasBookmarkHash {
+            let migrationSQL = "ALTER TABLE notes ADD COLUMN bookmark_hash TEXT;"
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            let result = sqlite3_exec(db, migrationSQL, nil, nil, &errorMessage)
+            if result != SQLITE_OK {
+                let error = errorMessage.map { String(cString: $0) } ?? "Unknown error"
+                sqlite3_free(errorMessage)
+                // Ignore "duplicate column" errors (idempotent migration)
+                if !error.contains("duplicate column") {
+                    throw NoteDatabaseError.schemaCreationFailed(result, error)
+                }
+            }
+        }
+        
+        // Ensure index exists (idempotent)
+        let indexSQL = "CREATE INDEX IF NOT EXISTS idx_bookmark_hash ON notes(bookmark_hash);"
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        var result = sqlite3_exec(db, indexSQL, nil, nil, &errorMessage)
+        if result != SQLITE_OK {
+            let error = errorMessage.map { String(cString: $0) } ?? "Unknown error"
+            sqlite3_free(errorMessage)
+            throw NoteDatabaseError.schemaCreationFailed(result, error)
+        }
+        
+        // Add UNIQUE constraint on bookmark_hash (where not null) - use a partial index approach
+        // Note: SQLite doesn't support partial unique constraints directly, so we'll handle uniqueness in application logic
+        // The index helps with lookups, and we'll use application-level logic to prevent duplicates
     }
     
     /// Close database connection
@@ -166,24 +221,79 @@ final class NoteDatabase {
         
         print("💾 [NoteDatabase] Saving note for: \(url.lastPathComponent)")
         
-        // Create bookmark for tracking file if it moves
+        // Create bookmark for tracking file if it moves (stable identity)
         var bookmark: Data?
+        var bookmarkHash: String?
         do {
             bookmark = try url.bookmarkData(
-                options: [.withSecurityScope],
-                includingResourceValuesForKeys: nil,
+                options: [],
+                includingResourceValuesForKeys: [.fileResourceIdentifierKey],
                 relativeTo: nil
             )
-            print("   📎 Created bookmark (\(bookmark?.count ?? 0) bytes)")
+            if let bookmark = bookmark {
+                bookmarkHash = hashBookmark(bookmark)
+                print("   📎 Created bookmark (\(bookmark.count) bytes, hash: \(bookmarkHash!.prefix(8))...)")
+            }
         } catch {
             // Bookmark creation is optional - continue without it
             print("   ⚠️ Bookmark creation failed: \(error.localizedDescription)")
         }
         
-        // Use INSERT OR REPLACE to handle both new inserts and updates
+        // If we have a bookmark_hash, try to update existing note by bookmark_hash first
+        // Otherwise, use INSERT OR REPLACE (which works on id primary key)
+        if let hash = bookmarkHash {
+            // Try to find existing note by bookmark_hash
+            let findSQL = "SELECT id FROM notes WHERE bookmark_hash = ? LIMIT 1;"
+            var findStatement: OpaquePointer?
+            var existingId: String? = nil
+            
+            if sqlite3_prepare_v2(db, findSQL, -1, &findStatement, nil) == SQLITE_OK {
+                sqlite3_bind_text(findStatement, 1, hash, -1, SQLITE_TRANSIENT)
+                if sqlite3_step(findStatement) == SQLITE_ROW {
+                    if let idCString = sqlite3_column_text(findStatement, 0) {
+                        existingId = String(cString: idCString)
+                    }
+                }
+            }
+            sqlite3_finalize(findStatement)
+            
+            // If found, update using the existing id; otherwise insert with new id
+            if let existingId = existingId {
+                let updateSQL = """
+                    UPDATE notes SET file_path = ?, file_bookmark = ?, title = ?, body = ?, modified_at = ?
+                    WHERE id = ?;
+                    """
+                var updateStatement: OpaquePointer?
+                
+                if sqlite3_prepare_v2(db, updateSQL, -1, &updateStatement, nil) == SQLITE_OK {
+                    sqlite3_bind_text(updateStatement, 1, filePath, -1, SQLITE_TRANSIENT)
+                    if let bookmarkData = bookmark {
+                        _ = bookmarkData.withUnsafeBytes { bytes in
+                            sqlite3_bind_blob(updateStatement, 2, bytes.baseAddress, Int32(bookmarkData.count), SQLITE_TRANSIENT)
+                        }
+                    } else {
+                        sqlite3_bind_null(updateStatement, 2)
+                    }
+                    sqlite3_bind_text(updateStatement, 3, title, -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(updateStatement, 4, body, -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_double(updateStatement, 5, modifiedAt)
+                    sqlite3_bind_text(updateStatement, 6, existingId, -1, SQLITE_TRANSIENT)
+                    
+                    let updateResult = sqlite3_step(updateStatement)
+                    sqlite3_finalize(updateStatement)
+                    
+                    if updateResult == SQLITE_DONE {
+                        print("   ✅ Note updated by bookmark_hash")
+                        return true
+                    }
+                }
+            }
+        }
+        
+        // Insert new note (or update by id if INSERT OR REPLACE)
         let sql = """
-            INSERT OR REPLACE INTO notes (id, file_path, file_bookmark, title, body, created_at, modified_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            INSERT OR REPLACE INTO notes (id, file_path, file_bookmark, bookmark_hash, title, body, created_at, modified_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """
         
         var statement: OpaquePointer?
@@ -218,10 +328,16 @@ final class NoteDatabase {
             sqlite3_bind_null(statement, 3)
         }
         
-        sqlite3_bind_text(statement, 4, title, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(statement, 5, body, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_double(statement, 6, createdAt)
-        sqlite3_bind_double(statement, 7, modifiedAt)
+        if let hash = bookmarkHash {
+            sqlite3_bind_text(statement, 4, hash, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 4)
+        }
+        
+        sqlite3_bind_text(statement, 5, title, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 6, body, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_double(statement, 7, createdAt)
+        sqlite3_bind_double(statement, 8, modifiedAt)
         
         // Execute
         result = sqlite3_step(statement)
@@ -245,14 +361,17 @@ final class NoteDatabase {
         
         print("🔍 [NoteDatabase] Looking up note for: \(url.lastPathComponent)")
         
-        // First try by current path
+        // 1. Try by current path (fast path)
         if let note = getNoteByPath(url.path) {
             print("   ✅ Found by current path")
             return note
         }
         
-        // TODO: Try resolving bookmarks for moved files
-        // This would iterate all notes with bookmarks and try to resolve them
+        // 2. Try by resolving bookmarks (moved files)
+        if let note = getNoteByBookmarkResolution(for: url) {
+            // Path was updated in getNoteByBookmarkResolution
+            return note
+        }
         
         print("   ❌ No note found in database")
         return nil
@@ -260,7 +379,7 @@ final class NoteDatabase {
     
     /// Get a note by file path
     private func getNoteByPath(_ path: String) -> Note? {
-        let sql = "SELECT id, file_path, title, body, created_at, modified_at FROM notes WHERE file_path = ?;"
+        let sql = "SELECT id, file_path, file_bookmark, title, body, created_at, modified_at FROM notes WHERE file_path = ?;"
         
         var statement: OpaquePointer?
         
@@ -288,6 +407,7 @@ final class NoteDatabase {
     func hasNote(for url: URL) -> Bool {
         guard isReady else { return false }
         
+        // Try by path first
         let sql = "SELECT 1 FROM notes WHERE file_path = ? LIMIT 1;"
         var statement: OpaquePointer?
         
@@ -295,13 +415,15 @@ final class NoteDatabase {
             sqlite3_finalize(statement)
         }
         
-        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) != SQLITE_OK {
-            return false
+        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
+            sqlite3_bind_text(statement, 1, url.path, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(statement) == SQLITE_ROW {
+                return true
+            }
         }
         
-        sqlite3_bind_text(statement, 1, url.path, -1, SQLITE_TRANSIENT)
-        
-        return sqlite3_step(statement) == SQLITE_ROW
+        // Try bookmark resolution
+        return getNoteByBookmarkResolution(for: url) != nil
     }
     
     /// Delete a note by file URL
@@ -313,7 +435,8 @@ final class NoteDatabase {
         
         print("🗑️ [NoteDatabase] Deleting note for: \(url.lastPathComponent)")
         
-        let sql = "DELETE FROM notes WHERE file_path = ?;"
+        // Try by path first
+        var sql = "DELETE FROM notes WHERE file_path = ?;"
         var statement: OpaquePointer?
         
         defer {
@@ -326,21 +449,43 @@ final class NoteDatabase {
         }
         
         sqlite3_bind_text(statement, 1, url.path, -1, SQLITE_TRANSIENT)
-        
-        let result = sqlite3_step(statement)
+        var result = sqlite3_step(statement)
+        sqlite3_finalize(statement)
+        statement = nil
         
         if result == SQLITE_DONE {
             let changes = sqlite3_changes(db)
             if changes > 0 {
-                print("   ✅ Deleted \(changes) note(s)")
-            } else {
-                print("   ℹ️ No note existed at that path")
+                print("   ✅ Deleted \(changes) note(s) by path")
+                return true
             }
-            return true
-        } else {
-            logSQLiteError("Delete failed", result)
-            return false
         }
+        
+        // Path lookup failed - try bookmark resolution
+        if let note = getNoteByBookmarkResolution(for: url) {
+            // Found by bookmark - delete by bookmark_hash
+            guard let bookmarkHash = note.bookmarkData.map({ hashBookmark($0) }) else {
+                print("   ⚠️ Found by bookmark but no hash available")
+                return false
+            }
+            
+            sql = "DELETE FROM notes WHERE bookmark_hash = ?;"
+            if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
+                sqlite3_bind_text(statement, 1, bookmarkHash, -1, SQLITE_TRANSIENT)
+                result = sqlite3_step(statement)
+                
+                if result == SQLITE_DONE {
+                    let changes = sqlite3_changes(db)
+                    if changes > 0 {
+                        print("   ✅ Deleted \(changes) note(s) by bookmark")
+                        return true
+                    }
+                }
+            }
+        }
+        
+        print("   ℹ️ No note existed at that path or bookmark")
+        return true  // Return true if note didn't exist (idempotent)
     }
     
     /// Update file path when a file is moved/renamed
@@ -370,6 +515,96 @@ final class NoteDatabase {
         return sqlite3_step(statement) == SQLITE_DONE
     }
     
+    // MARK: - Bookmark Helpers
+    
+    /// Compute a hash of bookmark data for indexing
+    private func hashBookmark(_ bookmark: Data) -> String {
+        // Use base64 encoding as stable identifier (simpler than SHA256)
+        return bookmark.base64EncodedString()
+    }
+    
+    /// Get stable file resource identifier (survives rename/move within same volume)
+    private func getFileResourceIdentifier(for url: URL) -> Data? {
+        do {
+            let values = try url.resourceValues(forKeys: [.fileResourceIdentifierKey])
+            if let identifier = values.fileResourceIdentifier as? NSData {
+                return identifier as Data
+            }
+        } catch {
+            print("   ⚠️ Failed to get file resource identifier: \(error.localizedDescription)")
+        }
+        return nil
+    }
+    
+    /// Get a note by resolving file bookmark (survives rename/move)
+    private func getNoteByBookmarkResolution(for url: URL) -> Note? {
+        // Try to create a bookmark for the current URL
+        guard let currentBookmark = try? url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: [.fileResourceIdentifierKey],
+            relativeTo: nil
+        ) else {
+            return nil
+        }
+        
+        // Get file resource identifier for comparison
+        guard let currentFileID = getFileResourceIdentifier(for: url) else {
+            return nil
+        }
+        
+        // Search all notes with bookmarks and try to resolve
+        let sql = "SELECT id, file_path, file_bookmark, title, body, created_at, modified_at FROM notes WHERE file_bookmark IS NOT NULL;"
+        var statement: OpaquePointer?
+        
+        defer {
+            sqlite3_finalize(statement)
+        }
+        
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return nil
+        }
+        
+        while sqlite3_step(statement) == SQLITE_ROW {
+            // Read bookmark data (column index 2)
+            guard let bookmarkBlob = sqlite3_column_blob(statement, 2) else { continue }
+            let bookmarkLength = sqlite3_column_bytes(statement, 2)
+            let bookmarkData = Data(bytes: bookmarkBlob, count: Int(bookmarkLength))
+            
+            // Try to resolve bookmark
+            var isStale = false
+            do {
+                let resolvedURL = try URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: [],
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
+                
+                // Compare file resource identifiers
+                if let resolvedFileID = getFileResourceIdentifier(for: resolvedURL),
+                   resolvedFileID == currentFileID {
+                    // Found match! Update path and return note
+                    guard let filePathCString = sqlite3_column_text(statement, 1) else { continue }
+                    let filePath = String(cString: filePathCString)
+                    let note = noteFromRow(statement, filePath: url.path)  // Use current path, not stored path
+                    
+                    // Update stored path to current location
+                    if let note = note {
+                        updateFilePath(from: URL(fileURLWithPath: filePath), to: url)
+                    }
+                    
+                    print("   ✅ Found by bookmark resolution (moved file)")
+                    return note
+                }
+            } catch {
+                // Bookmark resolution failed - skip this entry
+                continue
+            }
+        }
+        
+        return nil
+    }
+    
     // MARK: - Private Helpers
     
     /// Create a Note from a SQLite row
@@ -377,8 +612,8 @@ final class NoteDatabase {
         guard let statement = statement else { return nil }
         
         guard let idCString = sqlite3_column_text(statement, 0),
-              let titleCString = sqlite3_column_text(statement, 2),
-              let bodyCString = sqlite3_column_text(statement, 3) else {
+              let titleCString = sqlite3_column_text(statement, 3),
+              let bodyCString = sqlite3_column_text(statement, 4) else {
             return nil
         }
         
@@ -387,15 +622,22 @@ final class NoteDatabase {
         let body = String(cString: bodyCString)
         // Note: createdAt and modifiedAt are read but not used since Note generates new dates
         // We read them to validate the row structure
-        _ = sqlite3_column_double(statement, 4) // createdAt
-        _ = sqlite3_column_double(statement, 5) // modifiedAt
+        _ = sqlite3_column_double(statement, 5) // createdAt
+        _ = sqlite3_column_double(statement, 6) // modifiedAt
+        
+        // Read bookmark data if available
+        var bookmarkData: Data? = nil
+        if let bookmarkBlob = sqlite3_column_blob(statement, 2) {
+            let bookmarkLength = sqlite3_column_bytes(statement, 2)
+            bookmarkData = Data(bytes: bookmarkBlob, count: Int(bookmarkLength))
+        }
         
         // Validate UUID format
         guard UUID(uuidString: idString) != nil else { return nil }
         
         // Note: The Note will get a new UUID since Note uses let for id
         // This is fine for display purposes
-        return Note(filePath: filePath, title: title, body: body)
+        return Note(filePath: filePath, title: title, body: body, bookmarkData: bookmarkData)
     }
     
     /// Log SQLite error with details

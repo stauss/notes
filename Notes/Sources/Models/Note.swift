@@ -7,6 +7,7 @@ struct Note: Identifiable, Codable {
     var body: String
     var createdAt: Date
     var modifiedAt: Date
+    var bookmarkData: Data?  // Stable identifier for rename/move persistence
     
     // MARK: - Format Constants
     
@@ -16,13 +17,14 @@ struct Note: Identifiable, Codable {
     
     // MARK: - Initializers
     
-    init(filePath: String, title: String, body: String) {
+    init(filePath: String, title: String, body: String, bookmarkData: Data? = nil) {
         self.id = UUID()
         self.filePath = filePath
         self.title = title
         self.body = body
         self.createdAt = Date()
         self.modifiedAt = Date()
+        self.bookmarkData = bookmarkData
     }
     
     /// Decode from kMDItemFinderComment string with legacy migration support
