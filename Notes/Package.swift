@@ -11,6 +11,9 @@ let package = Package(
         .executableTarget(
             name: "Notes",
             path: "Sources",
+            exclude: [
+                "Resources/Info.plist"
+            ],
             resources: [
                 .process("Resources/Assets.xcassets")
             ]

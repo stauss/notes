@@ -5,12 +5,14 @@ struct AppSettings: Codable {
     var iconColor: String // Hex color
     var badgeColor: String // Hex color
     var launchAtLogin: Bool
+    var duplicateNoteWithFile: Bool
     
     static let defaults = AppSettings(
         globalShortcut: "⌃⌥N",
         iconColor: "#000000",
         badgeColor: "#007AFF",
-        launchAtLogin: false
+        launchAtLogin: false,
+        duplicateNoteWithFile: false
     )
     
     // UserDefaults keys
@@ -19,6 +21,7 @@ struct AppSettings: Codable {
         static let iconColor = "iconColor"
         static let badgeColor = "badgeColor"
         static let launchAtLogin = "launchAtLogin"
+        static let duplicateNoteWithFile = "duplicateNoteWithFile"
     }
     
     // Save to UserDefaults
@@ -28,6 +31,7 @@ struct AppSettings: Codable {
         defaults.set(iconColor, forKey: Keys.iconColor)
         defaults.set(badgeColor, forKey: Keys.badgeColor)
         defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
+        defaults.set(duplicateNoteWithFile, forKey: Keys.duplicateNoteWithFile)
     }
     
     // Load from UserDefaults
@@ -37,7 +41,8 @@ struct AppSettings: Codable {
             globalShortcut: defaults.string(forKey: Keys.globalShortcut) ?? AppSettings.defaults.globalShortcut,
             iconColor: defaults.string(forKey: Keys.iconColor) ?? AppSettings.defaults.iconColor,
             badgeColor: defaults.string(forKey: Keys.badgeColor) ?? AppSettings.defaults.badgeColor,
-            launchAtLogin: defaults.bool(forKey: Keys.launchAtLogin)
+            launchAtLogin: defaults.bool(forKey: Keys.launchAtLogin),
+            duplicateNoteWithFile: defaults.bool(forKey: Keys.duplicateNoteWithFile)
         )
     }
     

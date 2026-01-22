@@ -1,10 +1,12 @@
 import SwiftUI
 import Carbon
+import Combine
 
 struct ShortcutRecorderView: View {
     @Binding var shortcut: String
     @State private var isRecording = false
     @State private var eventMonitor: Any?
+    @State private var windowObserver: AnyCancellable?
     
     var body: some View {
         Button(action: {
@@ -16,6 +18,8 @@ struct ShortcutRecorderView: View {
         }) {
             HStack {
                 Text(isRecording ? "Press keys..." : shortcut)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.9))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
                 if !shortcut.isEmpty && !isRecording {
@@ -23,20 +27,40 @@ struct ShortcutRecorderView: View {
                         shortcut = ""
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.white.opacity(0.5))
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(8)
-            .background(isRecording ? Color.accentColor.opacity(0.1) : Color.gray.opacity(0.1))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isRecording ? Color.white.opacity(0.15) : Color.white.opacity(0.08))
             .cornerRadius(6)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(isRecording ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .stroke(isRecording ? Color.white.opacity(0.3) : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
+        .onAppear {
+            setupWindowObserver()
+        }
+        .onDisappear {
+            if isRecording {
+                stopRecording()
+            }
+            windowObserver?.cancel()
+        }
+    }
+    
+    private func setupWindowObserver() {
+        // Monitor for window resign key events to stop recording when user clicks away
+        windowObserver = NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)
+            .sink { [self] _ in
+                if isRecording {
+                    stopRecording()
+                }
+            }
     }
     
     private func startRecording() {

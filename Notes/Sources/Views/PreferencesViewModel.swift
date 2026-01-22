@@ -3,16 +3,12 @@ import AppKit
 
 class PreferencesViewModel: ObservableObject {
     @Published var settings: AppSettings
-    @Published var iconColor: Color
-    @Published var badgeColor: Color
     
     weak var menuBarManager: MenuBarManager?
     
     init() {
         let loadedSettings = AppSettings.load()
         self.settings = loadedSettings
-        self.iconColor = Color(hex: loadedSettings.iconColor) ?? .black
-        self.badgeColor = Color(hex: loadedSettings.badgeColor) ?? .blue
         
         // Sync launch at login state
         syncLaunchAtLogin()
@@ -38,28 +34,6 @@ class PreferencesViewModel: ObservableObject {
     
     func resetToDefaults() {
         settings.reset()
-        iconColor = Color(hex: settings.iconColor) ?? .black
-        badgeColor = Color(hex: settings.badgeColor) ?? .blue
-        
-        // Update menu bar icon
-        if let nsColor = NSColor(iconColor) {
-            menuBarManager?.updateIconColor(nsColor)
-        }
-    }
-    
-    func updateIconColor(_ color: Color) {
-        settings.iconColor = color.toHex() ?? "#000000"
-        saveSettings()
-        
-        // Update menu bar icon color
-        if let nsColor = NSColor(color) {
-            menuBarManager?.updateIconColor(nsColor)
-        }
-    }
-    
-    func updateBadgeColor(_ color: Color) {
-        settings.badgeColor = color.toHex() ?? "#007AFF"
-        saveSettings()
     }
 }
 

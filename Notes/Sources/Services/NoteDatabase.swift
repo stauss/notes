@@ -117,7 +117,6 @@ final class NoteDatabase {
         
         let createIndexSQL = """
             CREATE INDEX IF NOT EXISTS idx_file_path ON notes(file_path);
-            CREATE INDEX IF NOT EXISTS idx_bookmark_hash ON notes(bookmark_hash);
             """
         
         var errorMessage: UnsafeMutablePointer<CChar>?
@@ -130,7 +129,7 @@ final class NoteDatabase {
             throw NoteDatabaseError.schemaCreationFailed(result, error)
         }
         
-        // Create indexes
+        // Create basic indexes (file_path only - bookmark_hash index created after migration)
         result = sqlite3_exec(db, createIndexSQL, nil, nil, &errorMessage)
         if result != SQLITE_OK {
             let error = errorMessage.map { String(cString: $0) } ?? "Unknown error"
@@ -139,6 +138,7 @@ final class NoteDatabase {
         }
         
         // Migration: Add bookmark_hash column if it doesn't exist (idempotent)
+        // MUST run before creating bookmark_hash index
         try migrateSchema()
     }
     
@@ -164,6 +164,7 @@ final class NoteDatabase {
         
         // Add column if it doesn't exist
         if !hasBookmarkHash {
+            print("🔄 [NoteDatabase] Migrating: Adding bookmark_hash column...")
             let migrationSQL = "ALTER TABLE notes ADD COLUMN bookmark_hash TEXT;"
             var errorMessage: UnsafeMutablePointer<CChar>?
             let result = sqlite3_exec(db, migrationSQL, nil, nil, &errorMessage)
@@ -172,9 +173,14 @@ final class NoteDatabase {
                 sqlite3_free(errorMessage)
                 // Ignore "duplicate column" errors (idempotent migration)
                 if !error.contains("duplicate column") {
+                    print("❌ [NoteDatabase] Migration failed: \(error)")
                     throw NoteDatabaseError.schemaCreationFailed(result, error)
                 }
+            } else {
+                print("✅ [NoteDatabase] Migration successful: bookmark_hash column added")
             }
+        } else {
+            print("✅ [NoteDatabase] Migration check: bookmark_hash column already exists")
         }
         
         // Ensure index exists (idempotent)
@@ -238,6 +244,14 @@ final class NoteDatabase {
             // Bookmark creation is optional - continue without it
             print("   ⚠️ Bookmark creation failed: \(error.localizedDescription)")
         }
+        
+        // Extract values from note and url for use in both update and insert
+        let id = note.id.uuidString
+        let filePath = url.path
+        let title = note.title
+        let body = note.body
+        let createdAt = note.createdAt.timeIntervalSinceReferenceDate
+        let modifiedAt = note.modifiedAt.timeIntervalSinceReferenceDate
         
         // If we have a bookmark_hash, try to update existing note by bookmark_hash first
         // Otherwise, use INSERT OR REPLACE (which works on id primary key)
@@ -309,14 +323,7 @@ final class NoteDatabase {
             return false
         }
         
-        // Bind parameters
-        let id = note.id.uuidString
-        let filePath = url.path
-        let title = note.title
-        let body = note.body
-        let createdAt = note.createdAt.timeIntervalSinceReferenceDate
-        let modifiedAt = note.modifiedAt.timeIntervalSinceReferenceDate
-        
+        // Bind parameters (variables already declared above)
         sqlite3_bind_text(statement, 1, id, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(statement, 2, filePath, -1, SQLITE_TRANSIENT)
         

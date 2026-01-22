@@ -1,0 +1,152 @@
+caleb@Caleb ~ % /Users/caleb/Desktop/_Development/notes/Notes/.build/arm64-apple-macosx/debug/Notes ; exit;
+✅ Registered global shortcut: ⌃⇧N
+⌨️ Global shortcut pressed!
+   Frontmost app: Finder (com.apple.finder)
+   Requesting Finder selection...
+🔧 FinderSelectionMonitor initialized
+🔧 Setting up Finder monitors...
+   ✓ Registered for app activation notifications
+   ✓ Registered global mouse monitor
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+   Got selection: /Users/caleb/Desktop/_Development/notes/README.md
+📂 [NoteDatabase] Database at: /Users/caleb/Library/Application Support/Notes/notes.db
+🔍 [NoteDatabase] Looking up note for: README.md
+   ❌ No note found in database
+📚 [NoteStorage] Checking xattr fallback for: README.md
+🔍 [NoteStorage] Reading comment for: README.md
+   Full path: /Users/caleb/Desktop/_Development/notes/README.md
+   File exists: true
+   MDItem created: true
+   MDItem comment: (nil)
+   📂 MDItem failed or empty, trying xattr fallback...
+   🔧 [xattr] Reading directly for: README.md
+   🔧 [xattr] Size query result: -1
+   🔧 [xattr] getxattr size failed: errno=93 (Attribute not found)
+   🔧 [xattr] No such attribute exists on file
+   ❌ xattr fallback also failed - no note found
+📝 Creating note for: README.md
+📱 App activated: Notes (no bundle id)
+💾 [NoteDatabase] Saving note for: README.md
+   📎 Created bookmark (796 bytes)
+   ✅ Note inserted
+✅ [NoteStorage] Saved note to: README.md
+📱 App activated: Finder (com.apple.finder)
+📁 Finder became active, will refresh cache...
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/TERMINAL_LOG.txt'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+⌨️ Global shortcut pressed!
+   Frontmost app: Finder (com.apple.finder)
+   Requesting Finder selection...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/TERMINAL_LOG.txt'
+✅ Found 1 selected item(s)
+   Got selection: /Users/caleb/Desktop/_Development/notes/TERMINAL_LOG.txt
+🔍 [NoteDatabase] Looking up note for: TERMINAL_LOG.txt
+   ❌ No note found in database
+📚 [NoteStorage] Checking xattr fallback for: TERMINAL_LOG.txt
+🔍 [NoteStorage] Reading comment for: TERMINAL_LOG.txt
+   Full path: /Users/caleb/Desktop/_Development/notes/TERMINAL_LOG.txt
+   File exists: true
+   MDItem created: true
+   MDItem comment: (nil)
+   📂 MDItem failed or empty, trying xattr fallback...
+   🔧 [xattr] Reading directly for: TERMINAL_LOG.txt
+   🔧 [xattr] Size query result: -1
+   🔧 [xattr] getxattr size failed: errno=93 (Attribute not found)
+   🔧 [xattr] No such attribute exists on file
+   ❌ xattr fallback also failed - no note found
+📝 Creating note for: TERMINAL_LOG.txt
+📱 App activated: Notes (no bundle id)
+💾 [NoteDatabase] Saving note for: TERMINAL_LOG.txt
+   📎 Created bookmark (800 bytes)
+   ❌ Insert failed
+⚠️ [NoteStorage] Database save failed for: TERMINAL_LOG.txt
+✅ [NoteStorage] Saved note to: TERMINAL_LOG.txt
+📱 App activated: Finder (com.apple.finder)
+📁 Finder became active, will refresh cache...
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/TERMINAL_LOG.txt'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+⌨️ Global shortcut pressed!
+   Frontmost app: Finder (com.apple.finder)
+   Requesting Finder selection...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+   Got selection: /Users/caleb/Desktop/_Development/notes/README.md
+🔍 [NoteDatabase] Looking up note for: README.md
+   ✅ Found by current path
+📚 [NoteStorage] Found note in database for: README.md
+📝 Editing note for: README.md
+📱 App activated: Notes (no bundle id)
+💾 [NoteDatabase] Saving note for: README.md
+   📎 Created bookmark (796 bytes)
+   ❌ Insert failed
+⚠️ [NoteStorage] Database save failed for: README.md
+✅ [NoteStorage] Saved note to: README.md
+📱 App activated: Finder (com.apple.finder)
+📁 Finder became active, will refresh cache...
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+⌨️ Global shortcut pressed!
+   Frontmost app: Finder (com.apple.finder)
+   Requesting Finder selection...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+   Got selection: /Users/caleb/Desktop/_Development/notes/README.md
+🔍 [NoteDatabase] Looking up note for: README.md
+   ✅ Found by current path
+📚 [NoteStorage] Found note in database for: README.md
+📝 Editing note for: README.md
+📱 App activated: Notes (no bundle id)
+📱 App activated: Finder (com.apple.finder)
+📁 Finder became active, will refresh cache...
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+🔄 Refreshing cache...
+🔍 Querying Finder for selection...
+   osascript exit code: 0
+   osascript output: '/Users/caleb/Desktop/_Development/notes/README.md'
+✅ Found 1 selected item(s)
+🔄 Cache refreshed: 1 item(s)
+📱 App activated: Terminal (com.apple.Terminal)

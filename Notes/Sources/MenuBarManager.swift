@@ -77,19 +77,18 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         }
         
         // Standard menu items
-        addMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
-        addMenuItem(title: "Send Feedback", action: #selector(sendFeedback), keyEquivalent: "")
         menu?.addItem(NSMenuItem.separator())
-        addMenuItem(title: "About Notes", action: #selector(showAbout), keyEquivalent: "")
+        addMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        menu?.addItem(NSMenuItem.separator())
         addMenuItem(title: "Quit Notes", action: #selector(quitApp), keyEquivalent: "q")
     }
     
     /// Build menu for single file selection
     private func buildSingleSelectionMenu(for url: URL) {
-        // Show the filename as a header (disabled item)
-        let fileItem = NSMenuItem(title: url.lastPathComponent, action: nil, keyEquivalent: "")
-        fileItem.isEnabled = false
-        menu?.addItem(fileItem)
+        // Show status line
+        let statusItem = NSMenuItem(title: "Ready", action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        menu?.addItem(statusItem)
         
         let hasNote = NoteStorage.shared.hasNote(for: url)
         
@@ -112,10 +111,10 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         let itemsWithNotes = urls.filter { NoteStorage.shared.hasNote(for: $0) }
         let itemsWithoutNotes = urls.filter { !NoteStorage.shared.hasNote(for: $0) }
         
-        // Show selection count as header
-        let headerItem = NSMenuItem(title: "\(count) items selected", action: nil, keyEquivalent: "")
-        headerItem.isEnabled = false
-        menu?.addItem(headerItem)
+        // Show status line
+        let statusItem = NSMenuItem(title: count == 1 ? "1 item selected" : "\(count) items selected", action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        menu?.addItem(statusItem)
         
         // Show how many have notes
         if !itemsWithNotes.isEmpty {
@@ -155,28 +154,6 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     
     @objc private func openPreferences() {
         preferencesWindowController?.show()
-    }
-    
-    @objc private func sendFeedback() {
-        if let url = URL(string: "mailto:feedback@example.com?subject=Notes%20Feedback") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-    
-    @objc private func showAbout() {
-        let alert = NSAlert()
-        alert.messageText = "Notes"
-        alert.informativeText = "Version 1.0\n\nA minimal macOS utility for attaching notes to files and folders.\n\n© 2026 All rights reserved."
-        alert.alertStyle = .informational
-        
-        if let appIcon = NSImage(named: "AppIcon") {
-            alert.icon = appIcon
-        } else if let appIcon = NSApp.applicationIconImage {
-            alert.icon = appIcon
-        }
-        
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
     
     @objc private func quitApp() {
