@@ -6,8 +6,8 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     private var menu: NSMenu?
     weak var preferencesWindowController: PreferencesWindowController?
     
-    // Cache the Finder selection when menu opens (before focus changes)
-    private var cachedSelection: URL?
+    // Cache the Finder selections when menu opens (before focus changes)
+    private var cachedSelections: [URL] = []
     
     override init() {
         super.init()
@@ -43,9 +43,9 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
     
     func menuWillOpen(_ menu: NSMenu) {
-        // Use cached selection which survives brief focus loss
+        // Use cached selections which survive brief focus loss
         // The cache is refreshed when user clicks in Finder or Finder becomes active
-        cachedSelection = FinderSelectionMonitor.shared.getCachedOrCurrentSelection()
+        cachedSelections = FinderSelectionMonitor.shared.getCachedOrCurrentSelections()
     }
     
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -53,8 +53,8 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     }
     
     func menuDidClose(_ menu: NSMenu) {
-        // Clear cached selection after menu closes
-        cachedSelection = nil
+        // Clear cached selections after menu closes
+        cachedSelections = []
     }
     
     // MARK: - Menu Building
@@ -62,25 +62,18 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     private func buildMenuItems() {
         menu?.removeAllItems()
         
-        // Use cached selection (captured in menuWillOpen)
-        if let url = cachedSelection {
-            // Show the filename as a header (disabled item)
-            let fileItem = NSMenuItem(title: url.lastPathComponent, action: nil, keyEquivalent: "")
-            fileItem.isEnabled = false
-            menu?.addItem(fileItem)
-            
-            let hasNote = NoteStorage.shared.hasNote(for: url)
-            
-            if hasNote {
-                // Show Edit and Remove options
-                addMenuItem(title: "Edit Note", action: #selector(editNote), keyEquivalent: "")
-                addMenuItem(title: "Remove Note", action: #selector(removeNote), keyEquivalent: "")
-            } else {
-                // Show Add option
-                addMenuItem(title: "Add Note", action: #selector(addNote), keyEquivalent: "")
-            }
-            
+        if cachedSelections.isEmpty {
+            // No selection - show hint
+            let noSelectionItem = NSMenuItem(title: "Select a file in Finder", action: nil, keyEquivalent: "")
+            noSelectionItem.isEnabled = false
+            menu?.addItem(noSelectionItem)
             menu?.addItem(NSMenuItem.separator())
+        } else if cachedSelections.count == 1 {
+            // Single selection
+            buildSingleSelectionMenu(for: cachedSelections[0])
+        } else {
+            // Multiple selections
+            buildMultiSelectionMenu(for: cachedSelections)
         }
         
         // Standard menu items
@@ -89,6 +82,67 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         menu?.addItem(NSMenuItem.separator())
         addMenuItem(title: "About Notes", action: #selector(showAbout), keyEquivalent: "")
         addMenuItem(title: "Quit Notes", action: #selector(quitApp), keyEquivalent: "q")
+    }
+    
+    /// Build menu for single file selection
+    private func buildSingleSelectionMenu(for url: URL) {
+        // Show the filename as a header (disabled item)
+        let fileItem = NSMenuItem(title: url.lastPathComponent, action: nil, keyEquivalent: "")
+        fileItem.isEnabled = false
+        menu?.addItem(fileItem)
+        
+        let hasNote = NoteStorage.shared.hasNote(for: url)
+        
+        if hasNote {
+            // Show Edit, Copy, and Remove options
+            addMenuItem(title: "Edit Note", action: #selector(editNote), keyEquivalent: "")
+            addMenuItem(title: "Copy Note", action: #selector(copyNote), keyEquivalent: "c")
+            addMenuItem(title: "Remove Note", action: #selector(removeNote), keyEquivalent: "")
+        } else {
+            // Show Add option
+            addMenuItem(title: "Add Note", action: #selector(addNote), keyEquivalent: "")
+        }
+        
+        menu?.addItem(NSMenuItem.separator())
+    }
+    
+    /// Build menu for multiple file selections
+    private func buildMultiSelectionMenu(for urls: [URL]) {
+        let count = urls.count
+        let itemsWithNotes = urls.filter { NoteStorage.shared.hasNote(for: $0) }
+        let itemsWithoutNotes = urls.filter { !NoteStorage.shared.hasNote(for: $0) }
+        
+        // Show selection count as header
+        let headerItem = NSMenuItem(title: "\(count) items selected", action: nil, keyEquivalent: "")
+        headerItem.isEnabled = false
+        menu?.addItem(headerItem)
+        
+        // Show how many have notes
+        if !itemsWithNotes.isEmpty {
+            let noteCountItem = NSMenuItem(title: "  \(itemsWithNotes.count) with notes", action: nil, keyEquivalent: "")
+            noteCountItem.isEnabled = false
+            menu?.addItem(noteCountItem)
+        }
+        
+        menu?.addItem(NSMenuItem.separator())
+        
+        // Add Notes to items without notes
+        if !itemsWithoutNotes.isEmpty {
+            let addTitle = itemsWithoutNotes.count == 1
+                ? "Add Note to \(itemsWithoutNotes[0].lastPathComponent)"
+                : "Add Notes to \(itemsWithoutNotes.count) items..."
+            addMenuItem(title: addTitle, action: #selector(addNotesToSelection), keyEquivalent: "")
+        }
+        
+        // Remove Notes from items with notes
+        if !itemsWithNotes.isEmpty {
+            let removeTitle = itemsWithNotes.count == 1
+                ? "Remove Note from \(itemsWithNotes[0].lastPathComponent)"
+                : "Remove Notes from \(itemsWithNotes.count) items..."
+            addMenuItem(title: removeTitle, action: #selector(removeNotesFromSelection), keyEquivalent: "")
+        }
+        
+        menu?.addItem(NSMenuItem.separator())
     }
     
     private func addMenuItem(title: String, action: Selector, keyEquivalent: String) {
@@ -137,10 +191,10 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         }
     }
     
-    // MARK: - Note Actions
+    // MARK: - Single Selection Note Actions
     
     @objc private func addNote() {
-        guard let url = cachedSelection else {
+        guard let url = cachedSelections.first else {
             print("No file selected")
             return
         }
@@ -154,7 +208,7 @@ class MenuBarManager: NSObject, NSMenuDelegate {
     }
     
     @objc private func editNote() {
-        guard let url = cachedSelection else {
+        guard let url = cachedSelections.first else {
             print("No file selected")
             return
         }
@@ -167,8 +221,34 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         )
     }
     
+    @objc private func copyNote() {
+        guard let url = cachedSelections.first else {
+            print("No file selected")
+            return
+        }
+        
+        guard let note = NoteStorage.shared.getNote(for: url) else {
+            print("No note found for: \(url.lastPathComponent)")
+            return
+        }
+        
+        // Copy note content to clipboard
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        
+        // Format: Title (if exists) + Body
+        var content = ""
+        if !note.title.isEmpty {
+            content = note.title + "\n\n"
+        }
+        content += note.body
+        
+        pasteboard.setString(content, forType: .string)
+        print("✅ Copied note to clipboard: \(url.lastPathComponent)")
+    }
+    
     @objc private func removeNote() {
-        guard let url = cachedSelection else {
+        guard let url = cachedSelections.first else {
             print("No file selected")
             return
         }
@@ -184,6 +264,76 @@ class MenuBarManager: NSObject, NSMenuDelegate {
         if alert.runModal() == .alertFirstButtonReturn {
             NoteStorage.shared.removeNote(for: url)
             print("✅ Removed note for: \(url.lastPathComponent)")
+        }
+    }
+    
+    // MARK: - Multi-Selection Note Actions
+    
+    @objc private func addNotesToSelection() {
+        let itemsWithoutNotes = cachedSelections.filter { !NoteStorage.shared.hasNote(for: $0) }
+        
+        guard !itemsWithoutNotes.isEmpty else {
+            print("All selected items already have notes")
+            return
+        }
+        
+        if itemsWithoutNotes.count == 1 {
+            // Single item - open editor directly
+            NotificationCenter.default.post(
+                name: .openNoteEditor,
+                object: nil,
+                userInfo: ["url": itemsWithoutNotes[0]]
+            )
+        } else {
+            // Multiple items - show batch add dialog
+            showBatchAddDialog(for: itemsWithoutNotes)
+        }
+    }
+    
+    @objc private func removeNotesFromSelection() {
+        let itemsWithNotes = cachedSelections.filter { NoteStorage.shared.hasNote(for: $0) }
+        
+        guard !itemsWithNotes.isEmpty else {
+            print("No selected items have notes")
+            return
+        }
+        
+        // Show confirmation dialog
+        let alert = NSAlert()
+        alert.messageText = "Remove Notes"
+        alert.informativeText = "Are you sure you want to remove notes from \(itemsWithNotes.count) item(s)?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove All")
+        alert.addButton(withTitle: "Cancel")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            var removedCount = 0
+            for url in itemsWithNotes {
+                if NoteStorage.shared.removeNote(for: url) {
+                    removedCount += 1
+                }
+            }
+            print("✅ Removed notes from \(removedCount) item(s)")
+        }
+    }
+    
+    /// Show dialog for adding notes to multiple items at once
+    private func showBatchAddDialog(for urls: [URL]) {
+        let alert = NSAlert()
+        alert.messageText = "Add Notes to \(urls.count) Items"
+        alert.informativeText = "Would you like to add notes to each item individually?"
+        alert.addButton(withTitle: "Add Individually")
+        alert.addButton(withTitle: "Cancel")
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            // Open editor for first item, user can continue with others
+            if let firstUrl = urls.first {
+                NotificationCenter.default.post(
+                    name: .openNoteEditor,
+                    object: nil,
+                    userInfo: ["url": firstUrl, "pendingUrls": Array(urls.dropFirst())]
+                )
+            }
         }
     }
 }

@@ -6,6 +6,7 @@ class FinderSelectionMonitor {
     
     // Cached selection that persists briefly after Finder loses focus
     private var cachedSelection: URL?
+    private var cachedSelections: [URL] = []
     private var cacheTimestamp: Date?
     private let cacheValidityDuration: TimeInterval = 2.0  // 2 second validity
     
@@ -14,13 +15,73 @@ class FinderSelectionMonitor {
         setupFinderMonitor()
     }
     
-    // MARK: - Public API
+    // MARK: - Public API (Single Selection)
     
-    /// Get the currently selected file/folder in Finder (fresh query)
+    /// Get the currently selected file/folder in Finder (fresh query, single item)
     func getSelectedItem() -> URL? {
+        return getSelectedItems().first
+    }
+    
+    // MARK: - Public API (Multi-Selection)
+    
+    /// Get all currently selected files/folders in Finder (fresh query)
+    func getSelectedItems() -> [URL] {
         print("🔍 Querying Finder for selection...")
         
-        // Try multiple scripts with different approaches to handle various file types
+        // Script to get all selected items as a list of paths
+        let multiSelectScript = """
+        tell application "Finder"
+            set theSelection to selection
+            if theSelection is {} then
+                return ""
+            end if
+            set pathList to ""
+            repeat with theItem in theSelection
+                try
+                    set itemPath to POSIX path of (theItem as alias)
+                    if pathList is "" then
+                        set pathList to itemPath
+                    else
+                        set pathList to pathList & "|||" & itemPath
+                    end if
+                end try
+            end repeat
+            return pathList
+        end tell
+        """
+        
+        if let result = runOsascript(multiSelectScript), !result.isEmpty {
+            // Parse the delimiter-separated paths
+            let paths = result.components(separatedBy: "|||")
+            var urls: [URL] = []
+            
+            for path in paths {
+                let cleanPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleanPath.isEmpty {
+                    let url = URL(fileURLWithPath: cleanPath)
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        urls.append(url)
+                    }
+                }
+            }
+            
+            if !urls.isEmpty {
+                print("✅ Found \(urls.count) selected item(s)")
+                return urls
+            }
+        }
+        
+        // Fallback: Try single-item scripts
+        if let singleUrl = getSelectedItemFallback() {
+            return [singleUrl]
+        }
+        
+        print("ℹ️ No selection detected")
+        return []
+    }
+    
+    /// Fallback method for single selection (various approaches)
+    private func getSelectedItemFallback() -> URL? {
         let scripts = [
             // Approach 1: Get selection as text (most compatible)
             """
@@ -33,7 +94,7 @@ class FinderSelectionMonitor {
             end tell
             return ""
             """,
-            // Approach 2: Use insertion location as fallback
+            // Approach 2: Use alias conversion
             """
             tell application "Finder"
                 set theSelection to selection
@@ -41,7 +102,6 @@ class FinderSelectionMonitor {
                     try
                         return POSIX path of (item 1 of theSelection as alias)
                     on error
-                        -- Try getting the path differently
                         set theItem to item 1 of theSelection
                         return POSIX path of (theItem as string)
                     end try
@@ -63,27 +123,23 @@ class FinderSelectionMonitor {
         ]
         
         for (index, script) in scripts.enumerated() {
-            print("   Trying script approach \(index + 1)...")
             if let result = runOsascript(script) {
-                // Clean up the result - might be a file:// URL or a path
                 var path = result
                 if path.hasPrefix("file://") {
                     if let url = URL(string: path) {
                         path = url.path
                     }
                 }
-                if !path.isEmpty && path != "" {
+                if !path.isEmpty {
                     let url = URL(fileURLWithPath: path)
-                    // Verify the file exists
                     if FileManager.default.fileExists(atPath: url.path) {
-                        print("✅ Found selected file (approach \(index + 1)): \(url.lastPathComponent)")
+                        print("✅ Found selected file (fallback \(index + 1)): \(url.lastPathComponent)")
                         return url
                     }
                 }
             }
         }
         
-        print("ℹ️ No selection detected")
         return nil
     }
     
@@ -134,16 +190,22 @@ class FinderSelectionMonitor {
     /// Get cached selection if still valid, otherwise fetch fresh and cache it
     /// This survives brief focus loss (e.g., when clicking menu bar)
     func getCachedOrCurrentSelection() -> URL? {
-        print("🔍 getCachedOrCurrentSelection called")
+        return getCachedOrCurrentSelections().first
+    }
+    
+    /// Get cached selections (multi-select) if still valid, otherwise fetch fresh and cache
+    /// This survives brief focus loss (e.g., when clicking menu bar)
+    func getCachedOrCurrentSelections() -> [URL] {
+        print("🔍 getCachedOrCurrentSelections called")
         
         // Check cache status
-        if let cached = cachedSelection, let timestamp = cacheTimestamp {
+        if let timestamp = cacheTimestamp, !cachedSelections.isEmpty {
             let age = Date().timeIntervalSince(timestamp)
-            print("   Cache exists: \(cached.lastPathComponent), age: \(String(format: "%.2f", age))s")
+            print("   Cache exists: \(cachedSelections.count) item(s), age: \(String(format: "%.2f", age))s")
             
             if age < cacheValidityDuration {
-                print("📋 Using cached selection: \(cached.lastPathComponent)")
-                return cached
+                print("📋 Using cached selections: \(cachedSelections.count) item(s)")
+                return cachedSelections
             } else {
                 print("   Cache expired (>\(cacheValidityDuration)s)")
             }
@@ -151,35 +213,35 @@ class FinderSelectionMonitor {
             print("   No cache available")
         }
         
-        // Get fresh selection and cache it
-        let selection = getSelectedItem()
-        cachedSelection = selection
+        // Get fresh selections and cache them
+        let selections = getSelectedItems()
+        cachedSelections = selections
+        cachedSelection = selections.first
         cacheTimestamp = Date()
         
-        if let sel = selection {
-            print("💾 Cached new selection: \(sel.lastPathComponent)")
-        } else {
-            print("💾 Cached nil selection")
-        }
+        print("💾 Cached \(selections.count) selection(s)")
         
-        return selection
+        return selections
     }
     
     /// Manually refresh the cache (call when Finder becomes active)
     func refreshCache() {
         print("🔄 Refreshing cache...")
-        cachedSelection = getSelectedItem()
+        let selections = getSelectedItems()
+        cachedSelections = selections
+        cachedSelection = selections.first
         cacheTimestamp = Date()
-        if let cached = cachedSelection {
-            print("🔄 Cache refreshed: \(cached.lastPathComponent)")
-        } else {
-            print("🔄 Cache refreshed: (no selection)")
-        }
+        print("🔄 Cache refreshed: \(selections.count) item(s)")
     }
     
     /// Check if Finder has an active selection
     func hasSelection() -> Bool {
-        return getCachedOrCurrentSelection() != nil
+        return !getCachedOrCurrentSelections().isEmpty
+    }
+    
+    /// Get the count of selected items
+    func selectionCount() -> Int {
+        return getCachedOrCurrentSelections().count
     }
     
     // MARK: - Finder Monitoring

@@ -56,16 +56,23 @@ class NoteEditorWindowController: NSWindowController, NSWindowDelegate {
         // Force dark appearance for consistent Raycast-like look
         panel.appearance = NSAppearance(named: .darkAqua)
         
-        // Create visual effect view for vibrancy/translucency (dark Raycast-like style)
+        // Create visual effect view for vibrancy/translucency (darker style)
         let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 560, height: 420))
         visualEffect.autoresizingMask = [.width, .height]
         visualEffect.blendingMode = .behindWindow
-        visualEffect.material = .hudWindow
+        visualEffect.material = .ultraDark  // Darkest available material
         visualEffect.state = .active
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 12
         visualEffect.layer?.masksToBounds = true
         visualEffect.appearance = NSAppearance(named: .darkAqua)
+        
+        // Add semi-transparent dark overlay for even deeper darkness
+        let darkOverlay = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 420))
+        darkOverlay.autoresizingMask = [.width, .height]
+        darkOverlay.wantsLayer = true
+        darkOverlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.25).cgColor
+        visualEffect.addSubview(darkOverlay)
         
         panel.contentView = visualEffect
         
@@ -93,7 +100,8 @@ class NoteEditorWindowController: NSWindowController, NSWindowDelegate {
         let hosting = NSHostingView(rootView: editorView)
         hosting.frame = visualEffect.bounds
         hosting.autoresizingMask = [.width, .height]
-        visualEffect.addSubview(hosting)
+        // Add hosting view above the dark overlay
+        visualEffect.addSubview(hosting, positioned: .above, relativeTo: darkOverlay)
         
         self.hostingView = hosting
     }

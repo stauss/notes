@@ -75,7 +75,7 @@ struct NoteEditorView: View {
             if viewModel.title.isEmpty {
                 Text("Create a note")
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(.white.opacity(0.35))
+                    .foregroundColor(.white.opacity(0.25))
                     .allowsHitTesting(false)
             }
             
@@ -100,7 +100,7 @@ struct NoteEditorView: View {
             if viewModel.body.isEmpty && focusedField != .body {
                 Text("Write your note here...")
                     .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.25))
+                    .foregroundColor(.white.opacity(0.18))
                     .padding(.horizontal, 24)
                     .padding(.top, 8)
                     .allowsHitTesting(false)
@@ -109,7 +109,7 @@ struct NoteEditorView: View {
             // Text editor
             TextEditor(text: $viewModel.body)
                 .font(.system(size: 15))
-                .foregroundColor(.white.opacity(0.85))
+                .foregroundColor(.white.opacity(0.9))
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
                 .focused($focusedField, equals: .body)
@@ -134,7 +134,7 @@ struct NoteEditorView: View {
                 Button(action: onDelete) {
                     HStack(spacing: 8) {
                         Text("Delete Note")
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.white.opacity(0.6))
                         KeyboardShortcutBadge(modifiers: [.command], key: "X")
                     }
                 }
@@ -145,7 +145,7 @@ struct NoteEditorView: View {
                 Button(action: onDismiss) {
                     HStack(spacing: 8) {
                         Text("Cancel")
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.white.opacity(0.6))
                         KeyboardShortcutBadge(modifiers: [], key: "ESC")
                     }
                 }
@@ -235,10 +235,10 @@ struct KeyboardShortcutBadge: View {
     private func badgeKey(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11, weight: .medium, design: .rounded))
-            .foregroundColor(.white.opacity(0.6))
+            .foregroundColor(.white.opacity(0.55))
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(Color.white.opacity(0.1))
+            .background(Color.white.opacity(0.08))
             .cornerRadius(4)
     }
 }
